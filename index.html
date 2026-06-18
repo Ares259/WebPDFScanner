@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Homework Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f8; margin: 0; padding: 15px; text-align: center; color: #333; }
+        
+        /* Fixed main container */
+        .container { width: 100%; max-width: 420px; margin: 0 auto; background: white; padding: 20px; border-radius: 24px; box-shadow: 0 4px 25px rgba(0,0,0,0.06); }
+        h1 { font-size: 20px; margin: 5px 0 15px 0; color: #111; letter-spacing: -0.5px; }
+        
+        /* Camera View Area */
+        .media-box { position: relative; width: 100%; height: 350px; background: #000; border-radius: 18px; overflow: hidden; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; }
+        video, #preview-img { width: 100%; height: 100%; object-fit: contain; display: none; }
+        #drawing-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; z-index: 10; touch-action: none; }
+
+        /* Control Elements Layout */
+        .button-group { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+        .row { display: flex; gap: 12px; width: 100%; }
+        
+        /* Pill/Oval Button Blueprint */
+        button { flex: 1; height: 50px; font-size: 15px; font-weight: bold; cursor: pointer; border-radius: 30px; border: none; transition: background 0.2s, transform 0.1s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        button:active { transform: scale(0.97); }
+        
+        /* High-Contrast Colors */
+        .btn-blue { background: #007bff; color: white; }
+        .btn-green { background: #24b647; color: white; }
+        .btn-red { background: #e02424; color: white; }
+        .btn-gray { background: #4b5563; color: white; }
+        .btn-light { background: #f3f4f6; color: #1f2937; border: 1px solid #e5e7eb; border-radius: 30px; }
+
+        /* FIXED: Shutter row is now a simple button container instead of complex layered rings */
+        .shutter-row { display: flex; justify-content: center; margin-bottom: 15px; width: 100%; }
+        .shutter-btn { 
+            display: none; 
+            width: 100%; 
+            background: #007bff; 
+            color: white; 
+        }
+
+        /* Tools Bar Menu */
+        .mini-toolbar { display: none; justify-content: space-between; align-items: center; background: #f9fafb; padding: 8px 16px; border-radius: 30px; margin-bottom: 12px; border: 1px solid #f3f4f6; font-size: 13px; font-weight: bold; height: 50px; }
+        select { padding: 6px 12px; border-radius: 30px; border: 1px solid #d1d5db; font-weight: bold; background: white; outline: none; }
+
+        /* Collected Thumbnail strip */
+        .gallery-section { display: none; margin-top: 15px; border-top: 1px solid #f3f4f6; padding-top: 10px; text-align: left; }
+        .gallery-title { font-size: 13px; font-weight: bold; color: #6b7280; margin-bottom: 6px; }
+        .thumbnail-container { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; }
+        .thumb-wrapper { position: relative; width: 55px; height: 75px; border: 2px solid #007bff; border-radius: 8px; background: #eee; flex-shrink: 0; overflow: hidden; }
+        .thumb-img { width: 100%; height: 100%; object-fit: cover; }
+        .page-num { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.75); color: white; font-size: 9px; padding: 1px 4px; border-radius: 4px; font-weight: bold; }
+
+        /* Preview Modal sheets overlay */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 100; padding: 15px; box-sizing: border-box; overflow-y: auto; }
+        .modal-content { max-width: 400px; margin: 20px auto; background: white; padding: 20px; border-radius: 24px; }
+        .modal-scroll { display: flex; flex-direction: column; gap: 12px; max-height: 55vh; overflow-y: auto; margin: 15px 0; padding: 8px; background: #f3f4f6; border-radius: 14px; }
+        .modal-img { width: 100%; border-radius: 10px; border: 1px solid #e5e7eb; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>⚡ Mobile Scanner</h1>
+        
+        <div class="media-box" id="work-area">
+            <video id="video" autoplay playsinline muted></video>
+            <img id="preview-img" alt="Scanned Page">
+            <canvas id="drawing-canvas"></canvas>
+        </div>
+
+        <div class="shutter-row">
+            <button id="camera-shutter" class="shutter-btn btn-blue">📷 Take Photo</button>
+        </div>
+
+        <div class="button-group">
+            
+            <button id="start-btn" class="btn-blue">📷 Turn On Camera</button>
+            
+            <div class="mini-toolbar" id="editor-tools">
+                <label>Mode: 
+                    <select id="tool-mode">
+                        <option value="crop">✂️ Crop Box</option>
+                        <option value="draw">✏️ Draw Notes</option>
+                    </select>
+                </label>
+                <span id="brush-options" style="display: none;">
+                    <input type="color" id="brush-color" value="#007bff" style="width:28px; height:24px; border:none; padding:0; background:none; cursor:pointer;">
+                </span>
+                <button id="clear-draw-btn" class="btn-light" style="padding: 0 12px; font-size: 11px; height: 32px; width: auto; flex: none;">Reset Page</button>
+            </div>
+
+            <div class="row" id="decision-prompt" style="display: none;">
+                <button id="retry-btn" class="btn-red">🔄 Retake</button>
+                <button id="save-next-btn" class="btn-green">✅ Keep Page</button>
+            </div>
+
+            <div class="row" id="export-controls" style="display: none;">
+                <button id="preview-doc-btn" class="btn-light">👀 Preview (<span id="page-count-badge">0</span>)</button>
+                <button id="download-btn" class="btn-green">💾 Save As...</button>
+            </div>
+            
+            <button id="share-btn" class="btn-gray" style="display: none;">🔗 Quick Share File</button>
+        </div>
+
+        <div class="gallery-section" id="gallery-area">
+            <div class="gallery-title">Collected Pages:</div>
+            <div class="thumbnail-container" id="thumbnails"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="preview-modal">
+        <div class="modal-content">
+            <h3 style="margin: 0 0 5px 0;">Review Document</h3>
+            <div class="modal-scroll" id="modal-pages-container"></div>
+            <button id="close-preview-btn" class="btn-blue" style="width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <div style="display:none;">
+        <canvas id="hidden-canvas"></canvas>
+        <canvas id="crop-calc-canvas"></canvas>
+        <select id="export-format"><option value="pdf">PDF</option></select>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const previewImg = document.getElementById('preview-img');
+        const drawingCanvas = document.getElementById('drawing-canvas');
+        const hiddenCanvas = document.getElementById('hidden-canvas');
+        const cropCalcCanvas = document.getElementById('crop-calc-canvas');
+        
+        const startBtn = document.getElementById('start-btn');
+        const cameraShutter = document.getElementById('camera-shutter');
+        const decisionPrompt = document.getElementById('decision-prompt');
+        const retryBtn = document.getElementById('retry-btn');
+        const saveNextBtn = document.getElementById('save-next-btn');
+        const exportControls = document.getElementById('export-controls');
+        const downloadBtn = document.getElementById('download-btn');
+        const shareBtn = document.getElementById('share-btn');
+        const clearDrawBtn = document.getElementById('clear-draw-btn');
+        const previewDocBtn = document.getElementById('preview-doc-btn');
+        
+        const previewModal = document.getElementById('preview-modal');
+        const modalPagesContainer = document.getElementById('modal-pages-container');
+        const closePreviewBtn = document.getElementById('close-preview-btn');
+        
+        const pageCountBadge = document.getElementById('page-count-badge');
+        const thumbnailsContainer = document.getElementById('thumbnails');
+        const galleryArea = document.getElementById('gallery-area');
+        const editorTools = document.getElementById('editor-tools');
+        const brushColor = document.getElementById('brush-color');
+        const toolMode = document.getElementById('tool-mode');
+        const brushOptions = document.getElementById('brush-options');
+
+        let scannedPagesArray = []; 
+        let isInteracting = false;
+        let drawCtx = drawingCanvas.getContext('2d');
+        
+        let cropBox = { x1: 0, y1: 0, x2: 0, y2: 0 };
+        let activeCorner = -1; 
+        const handleRadius = 30; 
+        
+        let annotationCanvas = document.createElement('canvas');
+        let annCtx = annotationCanvas.getContext('2d');
+
+        toolMode.addEventListener('change', () => {
+            brushOptions.style.display = (toolMode.value === 'crop') ? 'none' : 'inline-block';
+            redrawWorkspace();
+        });
+
+        function changeUIState(state) {
+            startBtn.style.display = (state === 'INIT') ? 'block' : 'none';
+            video.style.display = (state === 'STREAM') ? 'block' : 'none';
+            cameraShutter.style.display = (state === 'STREAM') ? 'block' : 'none';
+            
+            previewImg.style.display = (state === 'EDIT') ? 'block' : 'none';
+            drawingCanvas.style.display = (state === 'EDIT') ? 'block' : 'none';
+            editorTools.style.display = (state === 'EDIT') ? 'flex' : 'none';
+            decisionPrompt.style.display = (state === 'EDIT') ? 'flex' : 'none';
+
+            if (scannedPagesArray.length > 0 && state === 'STREAM') {
+                exportControls.style.display = 'flex';
+                shareBtn.style.display = 'block';
+                galleryArea.style.display = 'block';
+            } else if (state !== 'STREAM') {
+                exportControls.style.display = 'none';
+                shareBtn.style.display = 'none';
+            }
+        }
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false 
+                });
+                video.srcObject = stream;
+                changeUIState('STREAM');
+            } catch (err) {
+                alert("Camera access denied.");
+            }
+        });
+
+        cameraShutter.addEventListener('click', () => {
+            const ctx = hiddenCanvas.getContext('2d');
+            hiddenCanvas.width = video.videoWidth || 640;
+            hiddenCanvas.height = video.videoHeight || 480;
+            ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            
+            previewImg.src = hiddenCanvas.toDataURL('image/jpeg', 0.7);
+            changeUIState('EDIT');
+            
+            toolMode.value = 'crop';
+            brushOptions.style.display = 'none';
+            
+            setTimeout(() => {
+                drawingCanvas.width = previewImg.clientWidth;
+                drawingCanvas.height = previewImg.clientHeight;
+                
+                annotationCanvas.width = drawingCanvas.width;
+                annotationCanvas.height = drawingCanvas.height;
+                annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+                
+                cropBox.x1 = drawingCanvas.width * 0.10;
+                cropBox.y1 = drawingCanvas.height * 0.10;
+                cropBox.x2 = drawingCanvas.width * 0.90;
+                cropBox.y2 = drawingCanvas.height * 0.90;
+                
+                setupWorkspaceEngine();
+                redrawWorkspace();
+            }, 150);
+        });
+
+        retryBtn.addEventListener('click', () => { changeUIState('STREAM'); });
+
+        function setupWorkspaceEngine() {
+            function getPos(e) {
+                const rect = drawingCanvas.getBoundingClientRect();
+                const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+                const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            }
+
+            drawingCanvas.addEventListener('pointerdown', (e) => {
+                const pos = getPos(e);
+                isInteracting = true;
+                drawingCanvas.setPointerCapture(e.pointerId);
+
+                if (toolMode.value === 'crop') {
+                    const corners = [
+                        { x: cropBox.x1, y: cropBox.y1 },
+                        { x: cropBox.x2, y: cropBox.y1 },
+                        { x: cropBox.x2, y: cropBox.y2 },
+                        { x: cropBox.x1, y: cropBox.y2 }
+                    ];
+                    activeCorner = -1;
+                    let closestDist = handleRadius;
+                    corners.forEach((corner, idx) => {
+                        const dist = Math.hypot(pos.x - corner.x, pos.y - corner.y);
+                        if (dist < closestDist) { closestDist = dist; activeCorner = idx; }
+                    });
+                } else {
+                    annCtx.lineCap = 'round'; annCtx.lineJoin = 'round';
+                    annCtx.beginPath(); annCtx.moveTo(pos.x, pos.y);
+                }
+            });
+
+            drawingCanvas.addEventListener('pointermove', (e) => {
+                if (!isInteracting) return;
+                const pos = getPos(e);
+
+                if (toolMode.value === 'crop') {
+                    if (activeCorner === -1) return;
+                    if (activeCorner === 0) { cropBox.x1 = Math.min(pos.x, cropBox.x2 - 20); cropBox.y1 = Math.min(pos.y, cropBox.y2 - 20); }
+                    if (activeCorner === 1) { cropBox.x2 = Math.max(pos.x, cropBox.x1 + 20); cropBox.y1 = Math.min(pos.y, cropBox.y2 - 20); }
+                    if (activeCorner === 2) { cropBox.x2 = Math.max(pos.x, cropBox.x1 + 20); cropBox.y2 = Math.max(pos.y, cropBox.y1 + 20); }
+                    if (activeCorner === 3) { cropBox.x1 = Math.min(pos.x, cropBox.x2 - 20); cropBox.y2 = Math.max(pos.y, cropBox.y1 + 20); }
+                } else {
+                    annCtx.globalAlpha = 1.0; annCtx.lineWidth = 3;
+                    annCtx.strokeStyle = brushColor.value;
+                    annCtx.lineTo(pos.x, pos.y); annCtx.stroke();
+                }
+                redrawWorkspace();
+            });
+
+            drawingCanvas.addEventListener('pointerup', () => { isInteracting = false; activeCorner = -1; });
+        }
+
+        function redrawWorkspace() {
+            drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+            drawCtx.drawImage(annotationCanvas, 0, 0);
+            
+            if (toolMode.value === 'crop') {
+                drawCtx.save();
+                drawCtx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                drawCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                
+                const w = cropBox.x2 - cropBox.x1;
+                const h = cropBox.y2 - cropBox.y1;
+                drawCtx.clearRect(cropBox.x1, cropBox.y1, w, h);
+                
+                drawCtx.strokeStyle = "#007bff";
+                drawCtx.lineWidth = 2;
+                drawCtx.strokeRect(cropBox.x1, cropBox.y1, w, h);
+                
+                drawCtx.fillStyle = "#007bff";
+                [{ x: cropBox.x1, y: cropBox.y1 }, { x: cropBox.x2, y: cropBox.y1 }, { x: cropBox.x2, y: cropBox.y2 }, { x: cropBox.x1, y: cropBox.y2 }].forEach(c => {
+                    drawCtx.beginPath(); drawCtx.arc(c.x, c.y, 8, 0, Math.PI * 2); drawCtx.fill();
+                });
+                drawCtx.restore();
+            }
+        }
+
+        clearDrawBtn.addEventListener('click', () => {
+            annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+            redrawWorkspace();
+        });
+
+        saveNextBtn.addEventListener('click', () => {
+            const scaleX = hiddenCanvas.width / drawingCanvas.width;
+            const scaleY = hiddenCanvas.height / drawingCanvas.height;
+
+            const sourceX = cropBox.x1 * scaleX;
+            const sourceY = cropBox.y1 * scaleY;
+            const sourceW = (cropBox.x2 - cropBox.x1) * scaleX;
+            const sourceH = (cropBox.y2 - cropBox.y1) * scaleY;
+
+            const finalCtx = hiddenCanvas.getContext('2d');
+            const notesImage = new Image();
+            notesImage.src = annotationCanvas.toDataURL();
+            
+            notesImage.onload = () => {
+                finalCtx.drawImage(notesImage, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                cropCalcCanvas.width = sourceW;
+                cropCalcCanvas.height = sourceH;
+                cropCalcCanvas.getContext('2d').drawImage(hiddenCanvas, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
+
+                const finalDataUrl = cropCalcCanvas.toDataURL('image/jpeg', 0.7);
+                scannedPagesArray.push({ data: finalDataUrl, width: sourceW, height: sourceH });
+
+                pageCountBadge.innerText = scannedPagesArray.length;
+
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = 'thumb-wrapper';
+                thumbWrapper.innerHTML = `<img src="${finalDataUrl}" class="thumb-img"><div class="page-num">p.${scannedPagesArray.length}</div>`;
+                thumbnailsContainer.appendChild(thumbWrapper);
+
+                changeUIState('STREAM');
+            };
+        });
+
+        previewDocBtn.addEventListener('click', () => {
+            modalPagesContainer.innerHTML = "";
+            scannedPagesArray.forEach((page, idx) => {
+                modalPagesContainer.innerHTML += `<div style="text-align:left; font-size:12px; font-weight:bold; margin-top:5px;">Page ${idx+1}:</div><img class="modal-img" src="${page.data}">`;
+            });
+            previewModal.style.display = 'block';
+        });
+
+        closePreviewBtn.addEventListener('click', () => { previewModal.style.display = 'none'; });
+
+        async function compilePDF() {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const a4W = pdf.internal.pageSize.getWidth();
+            const a4H = pdf.internal.pageSize.getHeight();
+
+            for (let i = 0; i < scannedPagesArray.length; i++) {
+                if (i > 0) pdf.addPage();
+                const page = scannedPagesArray[i];
+                const imgRatio = page.width / page.height;
+                let printW = a4W, printH = a4W / imgRatio;
+                if (printH > a4H) { printH = a4H; printW = a4H * imgRatio; }
+                pdf.addImage(page.data, 'JPEG', (a4W - printW)/2, (a4H - printH)/2, printW, printH, undefined, 'FAST');
+            }
+            return pdf;
+        }
+
+        downloadBtn.addEventListener('click', async () => {
+            let name = prompt("Name your document:", "My_Scan");
+            if (!name) return;
+            const pdfInstance = await compilePDF();
+            pdfInstance.save(name.trim() + ".pdf");
+        });
+
+        shareBtn.addEventListener('click', async () => {
+            if (!navigator.canShare) { alert("Sharing not supported on this platform."); return; }
+            const pdfInstance = await compilePDF();
+            const shareFile = new File([pdfInstance.output('blob')], "Scan.pdf", { type: "application/pdf" });
+            try { await navigator.share({ files: [shareFile], title: 'Scanned Document' }); } catch (err) {}
+        });
+    </script>
+</body>
+</html>
